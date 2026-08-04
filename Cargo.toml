@@ -1,0 +1,33 @@
+[package]
+name = "justadock"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "A dock for wlroots-based Wayland compositors (niri, wayfire, labwc, ...), built with gtk4-layer-shell."
+license = "MIT"
+
+[[bin]]
+name = "jdock"
+path = "src/main.rs"
+
+[dependencies]
+gtk4 = { version = "0.11", package = "gtk4" }
+gtk4-layer-shell = "0.8"
+gio = "0.22"
+
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+calloop = "0.14"
+calloop-wayland-source = "0.4"
+async-channel = "2"
+
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+shlex = "2"
+dirs = "6"
+libc = "0.2"
+
+[profile.release]
+opt-level = 2
+lto = true
+strip = true
