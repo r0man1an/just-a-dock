@@ -22,8 +22,7 @@ impl Geometry {
         let usable = (available_length as f64 - config.edge_margin as f64).max(1.0);
         let needed = item_count as f64 * slot_size;
         if item_count > 0 && needed >= usable {
-            slot_size = usable
-                item_count as f64;
+            slot_size = usable / item_count as f64;
         }
 
         let icon_render_size = slot_size * 0.8;
