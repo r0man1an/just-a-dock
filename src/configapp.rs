@@ -6,6 +6,14 @@ use crate::theme::{self, ColorScheme};
 
 const ICON_SIZE_OPTIONS: [u32; 5] = [40, 48, 53, 64, 72];
 
+const OPACITY_OPTIONS: [(&str, f64); 5] = [
+    ("None (opaque)", 1.0),
+    ("Low", 0.65),
+    ("Medium", 0.35),
+    ("High", 0.2),
+    ("Very high", 0.1),
+];
+
 fn apply_theme_preference(preference: ThemePreference) {
     let prefer_dark = match preference {
         ThemePreference::Light => false,
@@ -26,7 +34,7 @@ pub fn build_ui(app: &gtk4::Application) {
         .application(app)
         .title("JustADock Settings")
         .default_width(280)
-        .default_height(360)
+        .default_height(430)
         .resizable(false)
         .build();
 
@@ -75,12 +83,39 @@ pub fn build_ui(app: &gtk4::Application) {
     let intellihide_dropdown = gtk4::DropDown::from_strings(&["Disabled", "Enabled"]);
     intellihide_dropdown.set_selected(config.intellihide as u32);
 
+    let opacity_label = gtk4::Label::new(Some("Dock transparency"));
+    opacity_label.set_halign(gtk4::Align::Start);
+    let default_opacity = Config::default().opacity;
+    let opacity_labels: Vec<String> = OPACITY_OPTIONS
+        .iter()
+        .map(|(name, value)| match (*value - default_opacity).abs() < f64::EPSILON {
+            true => format!("{name} (default)"),
+            false => (*name).to_string(),
+        })
+        .collect();
+    let opacity_label_refs: Vec<&str> = opacity_labels.iter().map(String::as_str).collect();
+    let opacity_dropdown = gtk4::DropDown::from_strings(&opacity_label_refs);
+
+    let opacity_index = OPACITY_OPTIONS
+        .iter()
+        .enumerate()
+        .min_by(|(_, (_, a)), (_, (_, b))| {
+            (*a - config.opacity)
+                .abs()
+                .total_cmp(&(*b - config.opacity).abs())
+        })
+        .map(|(index, _)| index)
+        .unwrap_or(0);
+    opacity_dropdown.set_selected(opacity_index as u32);
+
     root.append(&theme_label);
     root.append(&theme_dropdown);
     root.append(&size_label);
     root.append(&size_dropdown);
     root.append(&intellihide_label);
     root.append(&intellihide_dropdown);
+    root.append(&opacity_label);
+    root.append(&opacity_dropdown);
 
     let spacer = gtk4::Box::new(Orientation::Vertical, 0);
     spacer.set_vexpand(true);
@@ -107,6 +142,7 @@ pub fn build_ui(app: &gtk4::Application) {
         let theme_dropdown = theme_dropdown.clone();
         let size_dropdown = size_dropdown.clone();
         let intellihide_dropdown = intellihide_dropdown.clone();
+        let opacity_dropdown = opacity_dropdown.clone();
         move |_| {
             let mut config = Config::load();
             config.theme = match theme_dropdown.selected() {
@@ -119,6 +155,10 @@ pub fn build_ui(app: &gtk4::Application) {
                 .copied()
                 .unwrap_or(default_icon_size);
             config.intellihide = intellihide_dropdown.selected() == 1;
+            config.opacity = OPACITY_OPTIONS
+                .get(opacity_dropdown.selected() as usize)
+                .map(|(_, value)| *value)
+                .unwrap_or(default_opacity);
             config.save();
             restart_dock();
             window.close();
