@@ -440,7 +440,7 @@ fn rebuild_row(guard: &mut AppInner, items: &[DockItem], inner: &Rc<RefCell<AppI
             let tooltip_text = tooltip_text.clone();
             let overlay = overlay.clone();
             move |_, _, _| {
-                let guard = inner.borrow();
+                let Ok(guard) = inner.try_borrow() else { return };
                 if guard.menu_window.is_visible() {
                     return;
                 }
@@ -451,7 +451,11 @@ fn rebuild_row(guard: &mut AppInner, items: &[DockItem], inner: &Rc<RefCell<AppI
         });
         motion.connect_leave({
             let inner = inner.clone();
-            move |_| inner.borrow().tooltip_window.set_visible(false)
+            move |_| {
+                if let Ok(guard) = inner.try_borrow() {
+                    guard.tooltip_window.set_visible(false);
+                }
+            }
         });
         button.add_controller(motion);
         overlay.set_child(Some(&button));
