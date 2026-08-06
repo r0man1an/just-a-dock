@@ -357,6 +357,22 @@ fn position_above_dock(
     measure_widget: &impl IsA<gtk4::Widget>,
     anchor: &impl IsA<gtk4::Widget>,
 ) {
+    let primary_edge = layer::tooltip_primary_edge(guard.config.edge);
+    let opposite_edge = match primary_edge {
+        gtk4_layer_shell::Edge::Left => gtk4_layer_shell::Edge::Right,
+        gtk4_layer_shell::Edge::Right => gtk4_layer_shell::Edge::Left,
+        gtk4_layer_shell::Edge::Top => gtk4_layer_shell::Edge::Bottom,
+        gtk4_layer_shell::Edge::Bottom => gtk4_layer_shell::Edge::Top,
+        unknown_edge => {
+            eprintln!("jdock warning: unhandled layer shell edge: {:?}", unknown_edge);
+            gtk4_layer_shell::Edge::Top
+        }
+    };
+    window.set_anchor(primary_edge, false);
+    window.set_margin(primary_edge, 0);
+    window.set_anchor(opposite_edge, false);
+    window.set_margin(opposite_edge, 0);
+
     let gap = guard.geometry.thickness * 0.41 * 0.75;
     let cross_margin =
         (guard.config.edge_margin as f64 + guard.geometry.thickness + gap).round() as i32;
@@ -368,24 +384,36 @@ fn position_above_dock(
         gtk4::Orientation::Vertical
     };
 
-    // query the anchors real allocated position so GTK box-layout rounding cant drift it off-center
-    let primary_length = available_length(guard) as f64;
-    let (content_size, anchor_offset, anchor_size) = if orientation == gtk4::Orientation::Horizontal {
-        let (x, _) = anchor
-            .translate_coordinates(&guard.content, 0.0, 0.0)
-            .unwrap_or((0.0, 0.0));
+    measure_widget.set_margin_start(0);
+    measure_widget.set_margin_end(0);
+    measure_widget.set_margin_top(0);
+    measure_widget.set_margin_bottom(0);
+
+    let (content_size, anchor_pos, anchor_size) = if orientation == gtk4::Orientation::Horizontal {
+        let (x, _) = anchor.translate_coordinates(&guard.content, 0.0, 0.0).unwrap_or((0.0, 0.0));
         (guard.content.width() as f64, x, anchor.width() as f64)
     } else {
-        let (_, y) = anchor
-            .translate_coordinates(&guard.content, 0.0, 0.0)
-            .unwrap_or((0.0, 0.0));
+        let (_, y) = anchor.translate_coordinates(&guard.content, 0.0, 0.0).unwrap_or((0.0, 0.0));
         (guard.content.height() as f64, y, anchor.height() as f64)
     };
-    let dock_start = (primary_length - content_size) / 2.0;
-    let icon_center = dock_start + anchor_offset + anchor_size / 2.0;
-    let (_, natural, _, _) = measure_widget.measure(orientation, -1);
-    let primary_margin = (icon_center - natural as f64 / 2.0).max(0.0).round() as i32;
-    window.set_margin(layer::tooltip_primary_edge(guard.config.edge), primary_margin);
+
+    let dock_center = content_size / 2.0;
+    let icon_center = anchor_pos + anchor_size / 2.0;
+    let offset = icon_center - dock_center;
+
+    // GTK centers the total size (widget + margin), so we double the offset to shift the visual center.
+    let margin_pos = if offset > 0.0 { (offset * 2.0).round() as i32 } else { 0 };
+    let margin_neg = if offset <= 0.0 { (offset.abs() * 2.0).round() as i32 } else { 0 };
+
+    if orientation == gtk4::Orientation::Horizontal {
+        measure_widget.set_halign(gtk4::Align::Center);
+        measure_widget.set_margin_start(margin_pos);
+        measure_widget.set_margin_end(margin_neg);
+    } else {
+        measure_widget.set_valign(gtk4::Align::Center);
+        measure_widget.set_margin_top(margin_pos);
+        measure_widget.set_margin_bottom(margin_neg);
+    }
 }
 
 fn update_indicator(guard: &AppInner, item: &DockItem) {
