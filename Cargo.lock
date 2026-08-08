@@ -420,6 +420,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "glib-unix"
+version = "0.22.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc698e05c8483a899312f76b30b8d6d59e44f9e6ddf93a7487a6de34019b543d"
+dependencies = [
+ "futures-core",
+ "glib",
+ "glib-unix-sys",
+]
+
+[[package]]
+name = "glib-unix-sys"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1f253bc9d43252b0e746e350c5993e0ca59d81595d81e7f9f1dff8ce6ff11c3"
+dependencies = [
+ "glib-sys",
+ "libc",
+ "system-deps",
+]
+
+[[package]]
 name = "gobject-sys"
 version = "0.22.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -599,6 +621,7 @@ dependencies = [
  "calloop-wayland-source",
  "dirs",
  "gio",
+ "glib-unix",
  "gtk4",
  "gtk4-layer-shell",
  "libc",

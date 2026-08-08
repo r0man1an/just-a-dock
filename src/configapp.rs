@@ -1,6 +1,8 @@
 use gtk4::prelude::*;
 use gtk4::Orientation;
 
+use std::os::unix::process::CommandExt;
+
 use crate::config::{Config, HideMode, ThemePreference};
 use crate::theme::{self, ColorScheme};
 
@@ -181,6 +183,7 @@ fn restart_dock() {
         return;
     };
     let my_pid = std::process::id();
+    let mut dock_was_running = false;
 
     if let Ok(entries) = std::fs::read_dir("/proc") {
         for entry in entries.flatten() {
@@ -204,11 +207,14 @@ fn restart_dock() {
                 continue;
             }
             unsafe {
-                libc::kill(pid as i32, libc::SIGTERM);
+                libc::kill(pid as i32, libc::SIGUSR1);
             }
+            dock_was_running = true;
         }
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    let _ = std::process::Command::new(current_exe).spawn();
+    if !dock_was_running {
+        let err = std::process::Command::new(current_exe).exec();
+        eprintln!("Failed to start dock: {err}");
+    }
 }
