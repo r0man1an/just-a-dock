@@ -1,7 +1,7 @@
 use gtk4::prelude::*;
 use gtk4::Orientation;
 
-use crate::config::{Config, ThemePreference};
+use crate::config::{Config, HideMode, ThemePreference};
 use crate::theme::{self, ColorScheme};
 
 const ICON_SIZE_OPTIONS: [u32; 5] = [40, 48, 53, 64, 72];
@@ -78,10 +78,14 @@ pub fn build_ui(app: &gtk4::Application) {
         .unwrap_or(0);
     size_dropdown.set_selected(size_index as u32);
 
-    let intellihide_label = gtk4::Label::new(Some("Intelligent hide"));
-    intellihide_label.set_halign(gtk4::Align::Start);
-    let intellihide_dropdown = gtk4::DropDown::from_strings(&["Disabled", "Enabled"]);
-    intellihide_dropdown.set_selected(config.intellihide as u32);
+    let hide_mode_label = gtk4::Label::new(Some("Hide mode"));
+    hide_mode_label.set_halign(gtk4::Align::Start);
+    let hide_mode_dropdown = gtk4::DropDown::from_strings(&[
+        HideMode::Disabled, 
+        HideMode::Maximized, 
+        HideMode::Timed
+    ].map(HideMode::label));
+    hide_mode_dropdown.set_selected(config.hide_mode as u32);
 
     let opacity_label = gtk4::Label::new(Some("Dock transparency"));
     opacity_label.set_halign(gtk4::Align::Start);
@@ -112,8 +116,8 @@ pub fn build_ui(app: &gtk4::Application) {
     root.append(&theme_dropdown);
     root.append(&size_label);
     root.append(&size_dropdown);
-    root.append(&intellihide_label);
-    root.append(&intellihide_dropdown);
+    root.append(&hide_mode_label);
+    root.append(&hide_mode_dropdown);
     root.append(&opacity_label);
     root.append(&opacity_dropdown);
 
@@ -141,7 +145,7 @@ pub fn build_ui(app: &gtk4::Application) {
         let window = window.clone();
         let theme_dropdown = theme_dropdown.clone();
         let size_dropdown = size_dropdown.clone();
-        let intellihide_dropdown = intellihide_dropdown.clone();
+        let hide_mode_dropdown = hide_mode_dropdown.clone();
         let opacity_dropdown = opacity_dropdown.clone();
         move |_| {
             let mut config = Config::load();
@@ -154,7 +158,11 @@ pub fn build_ui(app: &gtk4::Application) {
                 .get(size_dropdown.selected() as usize)
                 .copied()
                 .unwrap_or(default_icon_size);
-            config.intellihide = intellihide_dropdown.selected() == 1;
+            config.hide_mode = match hide_mode_dropdown.selected() {
+                1 => crate::config::HideMode::Maximized,
+                2 => crate::config::HideMode::Timed,
+                _ => crate::config::HideMode::Disabled,
+            };
             config.opacity = OPACITY_OPTIONS
                 .get(opacity_dropdown.selected() as usize)
                 .map(|(_, value)| *value)
