@@ -18,6 +18,24 @@ pub enum DockEdge {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum HideMode {
+    Disabled,
+    #[default]
+    Maximized,
+    Timed,
+}
+
+impl HideMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Disabled => "Disabled",
+            Self::Maximized => "Maximized",
+            Self::Timed => "Timed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemePreference {
@@ -37,7 +55,7 @@ pub struct Config {
     pub opacity: f64,
     pub pinned: Vec<String>,
     pub monitor: Option<String>,
-    pub intellihide: bool,
+    pub hide_mode: HideMode,
 }
 
 impl Default for Config {
@@ -54,7 +72,7 @@ impl Default for Config {
                 "org.gnome.Nautilus.desktop".into(),
             ],
             monitor: None,
-            intellihide: false,
+            hide_mode: HideMode::default(),
         }
     }
 }

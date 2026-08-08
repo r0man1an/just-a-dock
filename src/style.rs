@@ -1,4 +1,4 @@
-use crate::config::{Config, DockEdge, StyleVariant};
+use crate::config::{Config, DockEdge, HideMode, StyleVariant};
 use crate::geometry::Geometry;
 use crate::theme::ColorScheme;
 
@@ -26,13 +26,12 @@ pub fn generate_css(geometry: &Geometry, config: &Config, scheme: ColorScheme) -
     let pill = geometry.active_pill_length;
     let outward_margin = geometry.indicator_outward_margin(config.edge);
 
-    let dock_gap = if config.intellihide {
-        match config.style {
+    let dock_gap = match config.hide_mode {
+        HideMode::Timed | HideMode::Maximized => match config.style {
             StyleVariant::Round => config.edge_margin as f64,
             StyleVariant::Straight => 0.0,
-        }
-    } else {
-        0.0
+        },
+        HideMode::Disabled => 0.0,
     };
     let dock_gap_prop = match config.edge {
         DockEdge::Bottom => "margin-bottom",

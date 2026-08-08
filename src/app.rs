@@ -8,7 +8,7 @@ use gtk4::prelude::*;
 use gtk4::{glib, Orientation};
 use gtk4_layer_shell::{Layer, LayerShell};
 
-use crate::config::{Config, DockEdge, StyleVariant, ThemePreference};
+use crate::config::{Config, DockEdge, HideMode, StyleVariant, ThemePreference};
 use crate::desktop::{DesktopAction, DesktopEntry, DesktopEntryStore};
 use crate::geometry::Geometry;
 use crate::icon;
@@ -59,10 +59,7 @@ pub fn build_ui(app: &gtk4::Application) {
     let config = Config::load();
     let desktop = DesktopEntryStore::scan();
 
-    eprintln!(
-        "jdock: intellihide {}",
-        if config.intellihide { "enabled" } else { "disabled" }
-    );
+    eprintln!("jdock: {} hiding mode", config.hide_mode.label());
 
     let window = gtk4::ApplicationWindow::builder()
         .application(app)
@@ -202,7 +199,7 @@ pub fn build_ui(app: &gtk4::Application) {
         }
     });
 
-    if inner.borrow().config.intellihide {
+    if inner.borrow().config.hide_mode != HideMode::Disabled {
         let dock_motion = gtk4::EventControllerMotion::new();
         dock_motion.connect_enter({
             let inner = inner.clone();
@@ -211,7 +208,7 @@ pub fn build_ui(app: &gtk4::Application) {
                 if let Some(id) = guard.hide_timer.take() {
                     id.remove();
                 }
-                if guard.dodge && guard.hidden {
+                if guard.hidden {
                     drop(guard);
                     show_now(&inner);
                 }
@@ -240,7 +237,7 @@ pub fn build_ui(app: &gtk4::Application) {
                     let state = &mut *guard;
                     match event {
                         ToplevelEvent::Updated(info) => {
-                            if state.config.intellihide {
+                            if state.config.hide_mode == HideMode::Maximized {
                                 eprintln!(
                                     "jdock: toplevel {} app_id={} activated={} maximized={} fullscreen={}",
                                     info.id, info.app_id, info.activated, info.maximized, info.fullscreen
@@ -261,18 +258,16 @@ pub fn build_ui(app: &gtk4::Application) {
 
     window.present();
 
-    if inner.borrow().config.intellihide {
+    if inner.borrow().config.hide_mode != HideMode::Disabled {
         let inner = inner.clone();
         glib::timeout_add_local_once(DODGE_STARTUP_DELAY, move || {
             let mut guard = inner.borrow_mut();
             guard.started = true;
+            let hide_mode = guard.config.hide_mode;
             let dodge = guard.dodge;
             drop(guard);
-            if dodge {
-                let Ok(guard) = inner.try_borrow() else { return };
-                guard.window.set_layer(Layer::Overlay);
-                drop(guard);
-                hide_now(&inner);
+            if hide_mode == HideMode::Timed || (hide_mode == HideMode::Maximized && dodge) {
+                schedule_hide(&inner);
             }
         });
     }
@@ -693,7 +688,7 @@ fn collapsed_margin(guard: &AppInner) -> i32 {
 
 fn update_dodge(inner: &Rc<RefCell<AppInner>>) {
     let Ok(mut guard) = inner.try_borrow_mut() else { return };
-    if !guard.config.intellihide {
+    if guard.config.hide_mode != HideMode::Maximized {
         return;
     }
     let new_dodge = guard.model.should_dodge();
@@ -747,28 +742,36 @@ fn show_now(inner: &Rc<RefCell<AppInner>>) {
     }
     guard.hidden = false;
     let edge = layer::to_layer_edge(guard.config.edge);
-    guard.window.set_margin(edge, 0);
+    guard.window.set_margin(edge, match guard.config.hide_mode {
+        HideMode::Timed | HideMode::Maximized => 0,
+        HideMode::Disabled => match guard.config.style {
+            StyleVariant::Round => guard.config.edge_margin as i32,
+            StyleVariant::Straight => 0,
+        },
+    });
     guard.content.remove_css_class("collapsed");
 }
 
 fn schedule_hide(inner: &Rc<RefCell<AppInner>>) {
     let Ok(mut guard) = inner.try_borrow_mut() else { return };
-    if !guard.dodge || !guard.started {
+    if !guard.started {
         return;
     }
     if guard.menu_window.is_visible() {
         return;
     }
+    
+    match guard.config.hide_mode {
+        HideMode::Disabled => return,
+        HideMode::Maximized if !guard.dodge => return,
+        _ => {}
+    }
+
     if let Some(id) = guard.hide_timer.take() {
         id.remove();
     }
     let inner = inner.clone();
     guard.hide_timer = Some(glib::timeout_add_local_once(DODGE_HIDE_DELAY, move || {
-        let Ok(guard) = inner.try_borrow() else { return };
-        if !guard.dodge {
-            return;
-        }
-        drop(guard);
         hide_now(&inner);
     }));
 }

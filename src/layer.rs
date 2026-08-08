@@ -1,6 +1,6 @@
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-use crate::config::{Config, DockEdge, StyleVariant};
+use crate::config::{Config, DockEdge, HideMode, StyleVariant};
 
 pub fn init(window: &gtk4::ApplicationWindow, config: &Config) {
     window.init_layer_shell();
@@ -11,10 +11,9 @@ pub fn init(window: &gtk4::ApplicationWindow, config: &Config) {
     let edge = to_layer_edge(config.edge);
     window.set_anchor(edge, true);
 
-    let margin = if config.intellihide {
-        0
-    } else {
-        match config.style {
+    let margin = match config.hide_mode {
+        HideMode::Maximized | HideMode::Timed => 0,
+        HideMode::Disabled => match config.style {
             StyleVariant::Round => config.edge_margin as i32,
             StyleVariant::Straight => 0,
         }
