@@ -13,11 +13,9 @@ mod toplevel;
 use gtk4::glib;
 use gtk4::prelude::*;
 
-fn main() -> glib::ExitCode {
-    unsafe {
-        libc::signal(libc::SIGCHLD, libc::SIG_IGN);
-    }
+use std::os::unix::process::CommandExt;
 
+fn main() -> glib::ExitCode {
     if std::env::var_os("GDK_BACKEND").is_none() {
         unsafe { std::env::set_var("GDK_BACKEND", "wayland") };
     }
@@ -38,6 +36,22 @@ fn main() -> glib::ExitCode {
         Some("com.just-a-dock.Dock"),
         gtk4::gio::ApplicationFlags::empty(),
     );
+
+    glib_unix::unix_signal_add_local(libc::SIGUSR1, || {
+        if let Err(err) = restart() {
+            eprintln!("Failed to restart jdock: {err}");
+        }
+        gtk4::glib::ControlFlow::Continue
+    });
+
     application.connect_activate(app::build_ui);
     application.run()
+}
+
+fn restart() -> std::io::Result<()> {
+    let exe = std::env::current_exe()?;
+    let err = std::process::Command::new(exe)
+        .args(std::env::args_os().skip(1))
+        .exec();
+    Err(err)
 }
