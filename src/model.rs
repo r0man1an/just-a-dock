@@ -120,9 +120,17 @@ impl DockModel {
             .filter(|t| !t.is_empty())
     }
 
-    pub fn should_dodge(&self) -> bool {
-        self.windows
-            .values()
-            .any(|w| w.activated && (w.maximized || w.fullscreen))
+    pub fn should_dodge(&self, dock_output: Option<&str>) -> bool {
+        self.windows.values().any(|w| {
+            w.activated && (w.maximized || w.fullscreen) && self.on_dock_output(w, dock_output)
+        })
+    }
+
+    fn on_dock_output(&self, w: &ToplevelInfo, dock_output: Option<&str>) -> bool {
+        match dock_output {
+            None => true,
+            Some(_) if w.outputs.is_empty() => true,
+            Some(name) => w.outputs.iter().any(|o| o.as_str() == name),
+        }
     }
 }

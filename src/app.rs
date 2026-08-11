@@ -273,6 +273,19 @@ pub fn build_ui(app: &gtk4::Application) {
     }
 }
 
+fn dock_output(guard: &AppInner) -> Option<String> {
+    if let Some(name) = &guard.config.monitor {
+        return Some(name.clone());
+    }
+    guard
+        .display
+        .monitors()
+        .item(0)
+        .and_then(|o| o.downcast::<gtk4::gdk::Monitor>().ok())
+        .and_then(|m| m.connector())
+        .map(|s| s.to_string())
+}
+
 fn find_monitor(display: &gtk4::gdk::Display, connector: &str) -> Option<gtk4::gdk::Monitor> {
     let monitors = display.monitors();
     for i in 0..monitors.n_items() {
@@ -690,7 +703,8 @@ fn update_dodge(inner: &Rc<RefCell<AppInner>>) {
     if guard.config.hide_mode != HideMode::Maximized {
         return;
     }
-    let new_dodge = guard.model.should_dodge();
+    let dock_output = dock_output(&guard);
+    let new_dodge = guard.model.should_dodge(dock_output.as_deref());
     if new_dodge == guard.dodge {
         return;
     }
