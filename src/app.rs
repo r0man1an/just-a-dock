@@ -38,6 +38,7 @@ struct AppInner {
     dodge: bool,
     hidden: bool,
     started: bool,
+    current_monitor: Option<String>,
     tooltip_window: gtk4::ApplicationWindow,
     tooltip_label: gtk4::Label,
     menu_window: gtk4::ApplicationWindow,
@@ -168,6 +169,7 @@ pub fn build_ui(app: &gtk4::Application) {
         dodge: false,
         hidden: false,
         started: false,
+        current_monitor: None,
         tooltip_window,
         tooltip_label,
         menu_window,
@@ -256,6 +258,25 @@ pub fn build_ui(app: &gtk4::Application) {
         }
     });
 
+    window.connect_realize({
+        let inner = inner.clone();
+        move |w| {
+            if let Some(surface) = w.surface() {
+                surface.connect_enter_monitor({
+                    let inner = inner.clone();
+                    move |_, monitor| {
+                        if let Some(connector) = monitor.connector() {
+                            if let Ok(mut guard) = inner.try_borrow_mut() {
+                                guard.current_monitor = Some(connector.to_string());
+                            }
+                            update_dodge(&inner);
+                        }
+                    }
+                });
+            }
+        }
+    });
+
     window.present();
 
     if inner.borrow().config.hide_mode != HideMode::Disabled {
@@ -274,16 +295,7 @@ pub fn build_ui(app: &gtk4::Application) {
 }
 
 fn dock_output(guard: &AppInner) -> Option<String> {
-    if let Some(name) = &guard.config.monitor {
-        return Some(name.clone());
-    }
-    guard
-        .display
-        .monitors()
-        .item(0)
-        .and_then(|o| o.downcast::<gtk4::gdk::Monitor>().ok())
-        .and_then(|m| m.connector())
-        .map(|s| s.to_string())
+    guard.config.monitor.clone().or_else(|| guard.current_monitor.clone())
 }
 
 fn find_monitor(display: &gtk4::gdk::Display, connector: &str) -> Option<gtk4::gdk::Monitor> {
