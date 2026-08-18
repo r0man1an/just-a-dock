@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
@@ -23,6 +23,7 @@ const PEEK_PX: i32 = 6;
 const DODGE_HIDE_DELAY: Duration = Duration::from_millis(350);
 const COLLAPSE_FADE_DELAY: Duration = Duration::from_millis(200);
 const DODGE_STARTUP_DELAY: Duration = Duration::from_millis(500);
+const TOOLTIP_DELAY: Duration = Duration::from_millis(60);
 
 struct AppInner {
     config: Config,
@@ -42,6 +43,9 @@ struct AppInner {
     current_monitor: Option<String>,
     tooltip_window: gtk4::ApplicationWindow,
     tooltip_label: gtk4::Label,
+    hover_gen: u64,
+    tooltip_owner: u64,
+    tooltip_timer: Option<glib::SourceId>,
     menu_window: gtk4::ApplicationWindow,
     menu_box: gtk4::Box,
     display: gtk4::gdk::Display,
@@ -175,6 +179,9 @@ pub fn build_ui(app: &gtk4::Application) {
         current_monitor: None,
         tooltip_window,
         tooltip_label,
+        hover_gen: 0,
+        tooltip_owner: 0,
+        tooltip_timer: None,
         menu_window,
         menu_box,
         display,
@@ -442,6 +449,51 @@ fn position_above_dock(
     }
 }
 
+fn present_tooltip(guard: &AppInner, text: &str, anchor: &gtk4::Overlay) {
+    let window = guard.tooltip_window.clone();
+    let label = guard.tooltip_label.clone();
+    label.set_text(text);
+    position_above_dock(guard, &window, &label, anchor);
+    window.set_visible(true);
+}
+
+fn cancel_tooltip_timer(guard: &mut AppInner) {
+    if let Some(id) = guard.tooltip_timer.take() {
+        id.remove();
+    }
+}
+
+fn schedule_tooltip(
+    guard: &mut AppInner,
+    inner: &Rc<RefCell<AppInner>>,
+    text: String,
+    anchor: gtk4::Overlay,
+) -> u64 {
+    cancel_tooltip_timer(guard);
+    guard.hover_gen = guard.hover_gen.wrapping_add(1);
+    let gen = guard.hover_gen;
+    guard.tooltip_owner = gen;
+
+    let inner = inner.clone();
+    let id = glib::timeout_add_local_once(TOOLTIP_DELAY, move || {
+        if let Ok(mut guard) = inner.try_borrow_mut() {
+            guard.tooltip_timer = None;
+            if guard.tooltip_owner == gen && !guard.menu_window.is_visible() {
+                present_tooltip(&guard, &text, &anchor);
+            }
+        }
+    });
+    guard.tooltip_timer = Some(id);
+    gen
+}
+
+fn hide_tooltip_if_owner(guard: &mut AppInner, gen: u64) {
+    if guard.tooltip_owner == gen {
+        cancel_tooltip_timer(guard);
+        guard.tooltip_window.set_visible(false);
+    }
+}
+
 fn update_indicator(guard: &AppInner, item: &DockItem) {
     let Some(indicator) = guard.indicators.get(&item.key) else {
         return;
@@ -455,6 +507,7 @@ fn update_indicator(guard: &AppInner, item: &DockItem) {
 }
 
 fn rebuild_row(guard: &mut AppInner, items: &[DockItem], inner: &Rc<RefCell<AppInner>>) {
+    cancel_tooltip_timer(guard);
     guard.tooltip_window.set_visible(false);
     guard.menu_window.set_visible(false);
     while let Some(child) = guard.content.first_child() {
@@ -489,26 +542,28 @@ fn rebuild_row(guard: &mut AppInner, items: &[DockItem], inner: &Rc<RefCell<AppI
         }
         .to_string();
 
+        let cell_gen = Rc::new(Cell::new(0u64));
         let motion = gtk4::EventControllerMotion::new();
         motion.connect_enter({
             let inner = inner.clone();
             let tooltip_text = tooltip_text.clone();
             let overlay = overlay.clone();
+            let cell_gen = cell_gen.clone();
             move |_, _, _| {
-                let Ok(guard) = inner.try_borrow() else { return };
+                let Ok(mut guard) = inner.try_borrow_mut() else { return };
                 if guard.menu_window.is_visible() {
                     return;
                 }
-                guard.tooltip_label.set_text(&tooltip_text);
-                position_above_dock(&guard, &guard.tooltip_window, &guard.tooltip_label, &overlay);
-                guard.tooltip_window.set_visible(true);
+                let gen = schedule_tooltip(&mut guard, &inner, tooltip_text.clone(), overlay.clone());
+                cell_gen.set(gen);
             }
         });
         motion.connect_leave({
             let inner = inner.clone();
+            let cell_gen = cell_gen.clone();
             move |_| {
-                if let Ok(guard) = inner.try_borrow() {
-                    guard.tooltip_window.set_visible(false);
+                if let Ok(mut guard) = inner.try_borrow_mut() {
+                    hide_tooltip_if_owner(&mut guard, cell_gen.get());
                 }
             }
         });
@@ -630,25 +685,27 @@ fn append_trash(guard: &mut AppInner, inner: &Rc<RefCell<AppInner>>) {
     button.add_css_class("flat");
     button.set_child(Some(&image));
 
+    let cell_gen = Rc::new(Cell::new(0u64));
     let motion = gtk4::EventControllerMotion::new();
     motion.connect_enter({
         let inner = inner.clone();
         let overlay = overlay.clone();
+        let cell_gen = cell_gen.clone();
         move |_, _, _| {
-            let Ok(guard) = inner.try_borrow() else { return };
+            let Ok(mut guard) = inner.try_borrow_mut() else { return };
             if guard.menu_window.is_visible() {
                 return;
             }
-            guard.tooltip_label.set_text("Trash");
-            position_above_dock(&guard, &guard.tooltip_window, &guard.tooltip_label, &overlay);
-            guard.tooltip_window.set_visible(true);
+            let gen = schedule_tooltip(&mut guard, &inner, "Trash".to_string(), overlay.clone());
+            cell_gen.set(gen);
         }
     });
     motion.connect_leave({
         let inner = inner.clone();
+        let cell_gen = cell_gen.clone();
         move |_| {
-            if let Ok(guard) = inner.try_borrow() {
-                guard.tooltip_window.set_visible(false);
+            if let Ok(mut guard) = inner.try_borrow_mut() {
+                hide_tooltip_if_owner(&mut guard, cell_gen.get());
             }
         }
     });
