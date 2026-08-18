@@ -35,6 +35,20 @@ pub fn build_icon_image(display: &gdk::Display, icon_name: Option<&str>, render_
     image
 }
 
+pub fn build_gicon_image(display: &gdk::Display, gicon: &gtk4::gio::Icon, render_size: i32) -> gtk4::Image {
+    let theme = gtk4::IconTheme::for_display(display);
+    let paintable = theme.lookup_by_gicon(
+        gicon,
+        render_size,
+        1,
+        gtk4::TextDirection::None,
+        gtk4::IconLookupFlags::empty(),
+    );
+    let image = gtk4::Image::from_paintable(Some(&paintable));
+    image.set_pixel_size(render_size);
+    image
+}
+
 fn icon_candidates(name: &str) -> Vec<String> {
     let mut candidates = vec![name.to_string()];
 

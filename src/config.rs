@@ -57,6 +57,7 @@ pub struct Config {
     pub monitor: Option<String>,
     pub hide_mode: HideMode,
     pub show_trash: bool,
+    pub show_devices: bool,
 }
 
 impl Default for Config {
@@ -75,6 +76,7 @@ impl Default for Config {
             monitor: None,
             hide_mode: HideMode::default(),
             show_trash: true,
+            show_devices: true,
         }
     }
 }

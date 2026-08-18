@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod configapp;
 mod desktop;
+mod devices;
 mod geometry;
 mod icon;
 mod layer;

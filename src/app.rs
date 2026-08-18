@@ -10,6 +10,7 @@ use gtk4_layer_shell::{Layer, LayerShell};
 
 use crate::config::{Config, DockEdge, HideMode, StyleVariant, ThemePreference};
 use crate::desktop::{DesktopAction, DesktopEntry, DesktopEntryStore};
+use crate::devices;
 use crate::geometry::Geometry;
 use crate::icon;
 use crate::layer;
@@ -53,6 +54,7 @@ struct AppInner {
     _theme_proxy: Option<gtk4::gio::DBusProxy>,
     trash_button: Option<gtk4::Button>,
     _trash_monitor: Option<gtk4::gio::FileMonitor>,
+    _volume_monitor: Option<gtk4::gio::VolumeMonitor>,
 }
 
 pub fn build_ui(app: &gtk4::Application) {
@@ -161,6 +163,12 @@ pub fn build_ui(app: &gtk4::Application) {
         ThemePreference::Dark => (ColorScheme::Dark, None),
     };
 
+    let volume_monitor = if config.show_devices {
+        Some(devices::monitor())
+    } else {
+        None
+    };
+
     let inner = Rc::new(RefCell::new(AppInner {
         config,
         desktop,
@@ -189,11 +197,13 @@ pub fn build_ui(app: &gtk4::Application) {
         _theme_proxy: theme_proxy.clone(),
         trash_button: None,
         _trash_monitor: None,
+        _volume_monitor: volume_monitor,
     }));
 
     sync(&inner);
 
     setup_trash_monitor(&inner);
+    setup_volume_monitor(&inner);
 
     inner.borrow().menu_window.connect_notify_local(Some("is-active"), {
         let inner = inner.clone();
@@ -334,7 +344,11 @@ fn set_scheme(inner: &Rc<RefCell<AppInner>>, scheme: ColorScheme) {
 fn sync(inner: &Rc<RefCell<AppInner>>) {
     let mut guard = inner.borrow_mut();
     let items = guard.model.build_items(&guard.config.pinned, &guard.desktop);
-    let new_keys: Vec<String> = items.iter().map(|i| i.key.clone()).collect();
+    let devices = current_devices(&guard);
+    let mut new_keys: Vec<String> = items.iter().map(|i| i.key.clone()).collect();
+    for device in &devices {
+        new_keys.push(format!("__dev__:{}:{}", device.id, device.mounted));
+    }
 
     let available_length = available_length(&guard);
     let scale_factor = primary_scale_factor(&guard);
@@ -344,12 +358,22 @@ fn sync(inner: &Rc<RefCell<AppInner>>) {
     guard.css_provider.load_from_data(&css);
 
     if new_keys != guard.displayed_keys {
-        rebuild_row(&mut guard, &items, inner);
+        rebuild_row(&mut guard, &items, &devices, inner);
         guard.displayed_keys = new_keys;
     } else {
         for item in &items {
             update_indicator(&guard, item);
         }
+    }
+}
+
+fn current_devices(guard: &AppInner) -> Vec<devices::Device> {
+    if !guard.config.show_devices {
+        return Vec::new();
+    }
+    match &guard._volume_monitor {
+        Some(monitor) => devices::list(monitor),
+        None => Vec::new(),
     }
 }
 
@@ -506,7 +530,12 @@ fn update_indicator(guard: &AppInner, item: &DockItem) {
     }
 }
 
-fn rebuild_row(guard: &mut AppInner, items: &[DockItem], inner: &Rc<RefCell<AppInner>>) {
+fn rebuild_row(
+    guard: &mut AppInner,
+    items: &[DockItem],
+    device_list: &[devices::Device],
+    inner: &Rc<RefCell<AppInner>>,
+) {
     cancel_tooltip_timer(guard);
     guard.tooltip_window.set_visible(false);
     guard.menu_window.set_visible(false);
@@ -621,6 +650,12 @@ fn rebuild_row(guard: &mut AppInner, items: &[DockItem], inner: &Rc<RefCell<AppI
 
         guard.content.append(&overlay);
         guard.indicators.insert(item.key.clone(), indicator);
+    }
+
+    if guard.config.show_devices {
+        for device in device_list {
+            append_device(guard, inner, device);
+        }
     }
 
     if guard.config.show_trash {
@@ -744,6 +779,116 @@ fn append_trash(guard: &mut AppInner, inner: &Rc<RefCell<AppInner>>) {
     guard.trash_button = Some(button);
 }
 
+fn append_device(guard: &mut AppInner, inner: &Rc<RefCell<AppInner>>, device: &devices::Device) {
+    let overlay = gtk4::Overlay::new();
+    overlay.add_css_class("dock-cell");
+
+    let render_size = guard.geometry.icon_render_size.round() as i32;
+    let image = icon::build_gicon_image(&guard.display, &device.icon, render_size);
+    let button = gtk4::Button::new();
+    button.add_css_class("dock-icon-button");
+    button.add_css_class("flat");
+    button.set_child(Some(&image));
+
+    let name = device.name.clone();
+    let volume = device.volume.clone();
+
+    let cell_gen = Rc::new(Cell::new(0u64));
+    let motion = gtk4::EventControllerMotion::new();
+    motion.connect_enter({
+        let inner = inner.clone();
+        let overlay = overlay.clone();
+        let cell_gen = cell_gen.clone();
+        let name = name.clone();
+        move |_, _, _| {
+            let Ok(mut guard) = inner.try_borrow_mut() else { return };
+            if guard.menu_window.is_visible() {
+                return;
+            }
+            let gen = schedule_tooltip(&mut guard, &inner, name.clone(), overlay.clone());
+            cell_gen.set(gen);
+        }
+    });
+    motion.connect_leave({
+        let inner = inner.clone();
+        let cell_gen = cell_gen.clone();
+        move |_| {
+            if let Ok(mut guard) = inner.try_borrow_mut() {
+                hide_tooltip_if_owner(&mut guard, cell_gen.get());
+            }
+        }
+    });
+    button.add_controller(motion);
+    overlay.set_child(Some(&button));
+
+    button.connect_clicked({
+        let inner = inner.clone();
+        let volume = volume.clone();
+        move |_| on_device_clicked(&inner, &volume)
+    });
+
+    let right_click = gtk4::GestureClick::new();
+    right_click.set_button(gtk4::gdk::BUTTON_SECONDARY);
+    right_click.connect_pressed({
+        let inner = inner.clone();
+        let overlay = overlay.clone();
+        let volume = volume.clone();
+        move |_, _, _, _| {
+            let guard = inner.borrow();
+            guard.tooltip_window.set_visible(false);
+            rebuild_device_menu(&guard, &inner, &volume);
+            position_above_dock(&guard, &guard.menu_window, &guard.menu_box, &overlay);
+            guard.menu_window.set_visible(true);
+            guard.menu_window.present();
+        }
+    });
+    button.add_controller(right_click);
+
+    guard.content.append(&overlay);
+}
+
+fn on_device_clicked(inner: &Rc<RefCell<AppInner>>, volume: &gtk4::gio::Volume) {
+    if let Ok(guard) = inner.try_borrow() {
+        guard.tooltip_window.set_visible(false);
+        guard.menu_window.set_visible(false);
+    }
+    devices::activate(volume);
+}
+
+fn rebuild_device_menu(guard: &AppInner, inner: &Rc<RefCell<AppInner>>, volume: &gtk4::gio::Volume) {
+    while let Some(child) = guard.menu_box.first_child() {
+        guard.menu_box.remove(&child);
+    }
+
+    let open_row = menu_row("Open");
+    open_row.connect_clicked({
+        let inner = inner.clone();
+        let volume = volume.clone();
+        move |_| {
+            if let Ok(guard) = inner.try_borrow() {
+                guard.menu_window.set_visible(false);
+            }
+            devices::activate(&volume);
+        }
+    });
+    guard.menu_box.append(&open_row);
+
+    if devices::ejectable(volume) {
+        let eject_row = menu_row(devices::eject_label(volume));
+        eject_row.connect_clicked({
+            let inner = inner.clone();
+            let volume = volume.clone();
+            move |_| {
+                if let Ok(guard) = inner.try_borrow() {
+                    guard.menu_window.set_visible(false);
+                }
+                devices::eject(&volume);
+            }
+        });
+        guard.menu_box.append(&eject_row);
+    }
+}
+
 fn rebuild_trash_menu(guard: &AppInner, inner: &Rc<RefCell<AppInner>>) {
     while let Some(child) = guard.menu_box.first_child() {
         guard.menu_box.remove(&child);
@@ -809,6 +954,39 @@ fn setup_trash_monitor(inner: &Rc<RefCell<AppInner>>) {
         }
         Err(err) => eprintln!("jdock: failed to watch trash: {err}"),
     }
+}
+
+fn setup_volume_monitor(inner: &Rc<RefCell<AppInner>>) {
+    if !inner.borrow().config.show_devices {
+        return;
+    }
+    let Some(monitor) = inner.borrow()._volume_monitor.clone() else {
+        return;
+    };
+    monitor.connect_volume_added({
+        let inner = inner.clone();
+        move |_, _| sync(&inner)
+    });
+    monitor.connect_volume_removed({
+        let inner = inner.clone();
+        move |_, _| sync(&inner)
+    });
+    monitor.connect_mount_added({
+        let inner = inner.clone();
+        move |_, _| sync(&inner)
+    });
+    monitor.connect_mount_removed({
+        let inner = inner.clone();
+        move |_, _| sync(&inner)
+    });
+    monitor.connect_drive_connected({
+        let inner = inner.clone();
+        move |_, _| sync(&inner)
+    });
+    monitor.connect_drive_disconnected({
+        let inner = inner.clone();
+        move |_, _| sync(&inner)
+    });
 }
 
 fn menu_row(label: &str) -> gtk4::Button {

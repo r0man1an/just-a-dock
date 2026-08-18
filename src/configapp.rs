@@ -120,6 +120,9 @@ pub fn build_ui(app: &gtk4::Application) {
     let trash_switch = gtk4::Switch::new();
     trash_switch.set_active(config.show_trash);
 
+    let devices_switch = gtk4::Switch::new();
+    devices_switch.set_active(config.show_devices);
+
     let style_page = settings_page();
     style_page.append(&setting_row("Theme", &theme_dropdown));
     style_page.append(&setting_row("Dock size", &size_dropdown));
@@ -128,6 +131,7 @@ pub fn build_ui(app: &gtk4::Application) {
     let behaviour_page = settings_page();
     behaviour_page.append(&setting_row("Hide mode", &hide_mode_dropdown));
     behaviour_page.append(&setting_row("Show trash icon", &trash_switch));
+    behaviour_page.append(&setting_row("Show removable devices", &devices_switch));
 
     let stack = gtk4::Stack::new();
     stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
@@ -179,6 +183,7 @@ pub fn build_ui(app: &gtk4::Application) {
         let opacity_dropdown = opacity_dropdown.clone();
         let hide_mode_dropdown = hide_mode_dropdown.clone();
         let trash_switch = trash_switch.clone();
+        let devices_switch = devices_switch.clone();
         move |_| {
             let mut config = Config::load();
             config.theme = match theme_dropdown.selected() {
@@ -200,6 +205,7 @@ pub fn build_ui(app: &gtk4::Application) {
                 _ => HideMode::Disabled,
             };
             config.show_trash = trash_switch.is_active();
+            config.show_devices = devices_switch.is_active();
             config.save();
             restart_dock();
             window.close();
