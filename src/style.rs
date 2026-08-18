@@ -4,7 +4,6 @@ use crate::theme::ColorScheme;
 
 struct Palette {
     fill_hex: &'static str,
-    fill_a: f64,
     rim: &'static str,
     dot: &'static str,
     hover_highlight: &'static str,
@@ -25,7 +24,6 @@ pub fn generate_css(geometry: &Geometry, config: &Config, scheme: ColorScheme) -
 
         ColorScheme::Light => Palette {
             fill_hex: "#ececec",
-            fill_a: 0.82,
             rim: "alpha(#000000, 0.12)",
             dot: "alpha(#000000, 0.60)",
             hover_highlight: "alpha(#000000, 0.06)",
@@ -42,7 +40,6 @@ pub fn generate_css(geometry: &Geometry, config: &Config, scheme: ColorScheme) -
         },
         ColorScheme::Dark => Palette {
             fill_hex: "#191919",
-            fill_a: 0.85,
             rim: "alpha(#a0a0a0, 0.40)",
             dot: "alpha(#f0f0f0, 0.90)",
             hover_highlight: "alpha(#ffffff, 0.09)",
@@ -72,12 +69,7 @@ pub fn generate_css(geometry: &Geometry, config: &Config, scheme: ColorScheme) -
     let idle = geometry.idle_dot_diameter;
     let pill = geometry.active_pill_length;
     let outward_margin = geometry.indicator_outward_margin(config.edge);
-
-    let fill = format!(
-        "alpha({}, {:.3})",
-        p.fill_hex,
-        (p.fill_a * opacity).clamp(0.0, 1.0)
-    );
+    let fill = format!("alpha({}, {:.3})", p.fill_hex, opacity.clamp(0.0, 1.0));
 
     let rim = p.rim;
     let dot = p.dot;
