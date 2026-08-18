@@ -862,8 +862,7 @@ fn update_dodge(inner: &Rc<RefCell<AppInner>>) {
     if guard.config.hide_mode != HideMode::Maximized {
         return;
     }
-    let dock_output = dock_output(&guard);
-    let new_dodge = guard.model.should_dodge(dock_output.as_deref());
+    let new_dodge = guard.model.should_dodge();
     if new_dodge == guard.dodge {
         return;
     }

@@ -111,7 +111,6 @@ impl Config {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-
         if let Ok(toml_str) = toml::to_string_pretty(self) {
             let _ = fs::write(path, toml_str);
         }
