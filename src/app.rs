@@ -17,6 +17,7 @@ use crate::model::{DockItem, DockModel};
 use crate::style;
 use crate::theme::{self, ColorScheme};
 use crate::toplevel::{self, Command, ToplevelEvent};
+use crate::trash;
 
 const PEEK_PX: i32 = 6;
 const DODGE_HIDE_DELAY: Duration = Duration::from_millis(350);
@@ -38,6 +39,7 @@ struct AppInner {
     dodge: bool,
     hidden: bool,
     started: bool,
+    current_monitor: Option<String>,
     tooltip_window: gtk4::ApplicationWindow,
     tooltip_label: gtk4::Label,
     menu_window: gtk4::ApplicationWindow,
@@ -45,6 +47,8 @@ struct AppInner {
     display: gtk4::gdk::Display,
     cmd_tx: CalloopSender<Command>,
     _theme_proxy: Option<gtk4::gio::DBusProxy>,
+    trash_button: Option<gtk4::Button>,
+    _trash_monitor: Option<gtk4::gio::FileMonitor>,
 }
 
 pub fn build_ui(app: &gtk4::Application) {
@@ -168,6 +172,7 @@ pub fn build_ui(app: &gtk4::Application) {
         dodge: false,
         hidden: false,
         started: false,
+        current_monitor: None,
         tooltip_window,
         tooltip_label,
         menu_window,
@@ -175,9 +180,13 @@ pub fn build_ui(app: &gtk4::Application) {
         display,
         cmd_tx,
         _theme_proxy: theme_proxy.clone(),
+        trash_button: None,
+        _trash_monitor: None,
     }));
 
     sync(&inner);
+
+    setup_trash_monitor(&inner);
 
     inner.borrow().menu_window.connect_notify_local(Some("is-active"), {
         let inner = inner.clone();
@@ -256,6 +265,25 @@ pub fn build_ui(app: &gtk4::Application) {
         }
     });
 
+    window.connect_realize({
+        let inner = inner.clone();
+        move |w| {
+            if let Some(surface) = w.surface() {
+                surface.connect_enter_monitor({
+                    let inner = inner.clone();
+                    move |_, monitor| {
+                        if let Some(connector) = monitor.connector() {
+                            if let Ok(mut guard) = inner.try_borrow_mut() {
+                                guard.current_monitor = Some(connector.to_string());
+                            }
+                            update_dodge(&inner);
+                        }
+                    }
+                });
+            }
+        }
+    });
+
     window.present();
 
     if inner.borrow().config.hide_mode != HideMode::Disabled {
@@ -271,6 +299,10 @@ pub fn build_ui(app: &gtk4::Application) {
             }
         });
     }
+}
+
+fn dock_output(guard: &AppInner) -> Option<String> {
+    guard.config.monitor.clone().or_else(|| guard.current_monitor.clone())
 }
 
 fn find_monitor(display: &gtk4::gdk::Display, connector: &str) -> Option<gtk4::gdk::Monitor> {
@@ -429,6 +461,7 @@ fn rebuild_row(guard: &mut AppInner, items: &[DockItem], inner: &Rc<RefCell<AppI
         guard.content.remove(&child);
     }
     guard.indicators.clear();
+    guard.trash_button = None;
 
     let (halign, valign) = match guard.config.edge {
         DockEdge::Bottom => (gtk4::Align::Center, gtk4::Align::End),
@@ -534,6 +567,10 @@ fn rebuild_row(guard: &mut AppInner, items: &[DockItem], inner: &Rc<RefCell<AppI
         guard.content.append(&overlay);
         guard.indicators.insert(item.key.clone(), indicator);
     }
+
+    if guard.config.show_trash {
+        append_trash(guard, inner);
+    }
 }
 
 fn rebuild_menu(
@@ -579,6 +616,141 @@ fn rebuild_menu(
             move |_| close_item(&inner, &windows)
         });
         guard.menu_box.append(&close_row);
+    }
+}
+
+fn append_trash(guard: &mut AppInner, inner: &Rc<RefCell<AppInner>>) {
+    let overlay = gtk4::Overlay::new();
+    overlay.add_css_class("dock-cell");
+
+    let render_size = guard.geometry.icon_render_size.round() as i32;
+    let image = icon::build_icon_image(&guard.display, Some(trash::icon_name()), render_size);
+    let button = gtk4::Button::new();
+    button.add_css_class("dock-icon-button");
+    button.add_css_class("flat");
+    button.set_child(Some(&image));
+
+    let motion = gtk4::EventControllerMotion::new();
+    motion.connect_enter({
+        let inner = inner.clone();
+        let overlay = overlay.clone();
+        move |_, _, _| {
+            let Ok(guard) = inner.try_borrow() else { return };
+            if guard.menu_window.is_visible() {
+                return;
+            }
+            guard.tooltip_label.set_text("Trash");
+            position_above_dock(&guard, &guard.tooltip_window, &guard.tooltip_label, &overlay);
+            guard.tooltip_window.set_visible(true);
+        }
+    });
+    motion.connect_leave({
+        let inner = inner.clone();
+        move |_| {
+            if let Ok(guard) = inner.try_borrow() {
+                guard.tooltip_window.set_visible(false);
+            }
+        }
+    });
+    button.add_controller(motion);
+    overlay.set_child(Some(&button));
+
+    button.connect_clicked({
+        let inner = inner.clone();
+        move |_| {
+            if let Ok(guard) = inner.try_borrow() {
+                guard.tooltip_window.set_visible(false);
+            }
+            if let Err(err) = trash::open() {
+                eprintln!("jdock: failed to open trash: {err}");
+            }
+        }
+    });
+
+    let right_click = gtk4::GestureClick::new();
+    right_click.set_button(gtk4::gdk::BUTTON_SECONDARY);
+    right_click.connect_pressed({
+        let inner = inner.clone();
+        let overlay = overlay.clone();
+        move |_, _, _, _| {
+            let guard = inner.borrow();
+            guard.tooltip_window.set_visible(false);
+            rebuild_trash_menu(&guard, &inner);
+            position_above_dock(&guard, &guard.menu_window, &guard.menu_box, &overlay);
+            guard.menu_window.set_visible(true);
+            guard.menu_window.present();
+        }
+    });
+    button.add_controller(right_click);
+
+    guard.content.append(&overlay);
+    guard.trash_button = Some(button);
+}
+
+fn rebuild_trash_menu(guard: &AppInner, inner: &Rc<RefCell<AppInner>>) {
+    while let Some(child) = guard.menu_box.first_child() {
+        guard.menu_box.remove(&child);
+    }
+
+    let open_row = menu_row("Open Trash");
+    open_row.connect_clicked({
+        let inner = inner.clone();
+        move |_| {
+            if let Ok(guard) = inner.try_borrow() {
+                guard.menu_window.set_visible(false);
+            }
+            if let Err(err) = trash::open() {
+                eprintln!("jdock: failed to open trash: {err}");
+            }
+        }
+    });
+    guard.menu_box.append(&open_row);
+
+    let empty_row = menu_row("Empty Trash");
+    empty_row.set_sensitive(!trash::is_empty());
+    empty_row.connect_clicked({
+        let inner = inner.clone();
+        move |_| {
+            if let Ok(guard) = inner.try_borrow() {
+                guard.menu_window.set_visible(false);
+            }
+            if let Err(err) = trash::empty() {
+                eprintln!("jdock: failed to empty trash: {err}");
+            }
+            refresh_trash_icon(&inner);
+        }
+    });
+    guard.menu_box.append(&empty_row);
+}
+
+fn refresh_trash_icon(inner: &Rc<RefCell<AppInner>>) {
+    let Ok(guard) = inner.try_borrow() else { return };
+    let Some(button) = guard.trash_button.clone() else { return };
+    let render_size = guard.geometry.icon_render_size.round() as i32;
+    let image = icon::build_icon_image(&guard.display, Some(trash::icon_name()), render_size);
+    button.set_child(Some(&image));
+}
+
+fn setup_trash_monitor(inner: &Rc<RefCell<AppInner>>) {
+    if !inner.borrow().config.show_trash {
+        return;
+    }
+    let Some(dir) = trash::monitor_dir() else {
+        return;
+    };
+    let file = gtk4::gio::File::for_path(&dir);
+    match file.monitor_directory(
+        gtk4::gio::FileMonitorFlags::NONE,
+        gtk4::gio::Cancellable::NONE,
+    ) {
+        Ok(monitor) => {
+            monitor.connect_changed({
+                let inner = inner.clone();
+                move |_, _, _, _| refresh_trash_icon(&inner)
+            });
+            inner.borrow_mut()._trash_monitor = Some(monitor);
+        }
+        Err(err) => eprintln!("jdock: failed to watch trash: {err}"),
     }
 }
 
@@ -690,7 +862,8 @@ fn update_dodge(inner: &Rc<RefCell<AppInner>>) {
     if guard.config.hide_mode != HideMode::Maximized {
         return;
     }
-    let new_dodge = guard.model.should_dodge();
+    let dock_output = dock_output(&guard);
+    let new_dodge = guard.model.should_dodge(dock_output.as_deref());
     if new_dodge == guard.dodge {
         return;
     }

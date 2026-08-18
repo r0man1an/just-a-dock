@@ -56,6 +56,7 @@ pub struct Config {
     pub pinned: Vec<String>,
     pub monitor: Option<String>,
     pub hide_mode: HideMode,
+    pub show_trash: bool,
 }
 
 impl Default for Config {
@@ -66,13 +67,14 @@ impl Default for Config {
             edge: DockEdge::Bottom,
             theme: ThemePreference::System,
             edge_margin: 10,
-            opacity: 0.35,
+            opacity: 0.7,
             pinned: vec![
                 "firefox.desktop".into(),
                 "org.gnome.Nautilus.desktop".into(),
             ],
             monitor: None,
             hide_mode: HideMode::default(),
+            show_trash: true,
         }
     }
 }
@@ -109,6 +111,7 @@ impl Config {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
+
         if let Ok(toml_str) = toml::to_string_pretty(self) {
             let _ = fs::write(path, toml_str);
         }

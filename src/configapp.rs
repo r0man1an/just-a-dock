@@ -8,10 +8,10 @@ const ICON_SIZE_OPTIONS: [u32; 5] = [40, 48, 53, 64, 72];
 
 const OPACITY_OPTIONS: [(&str, f64); 5] = [
     ("None (opaque)", 1.0),
-    ("Low", 0.65),
-    ("Medium", 0.35),
-    ("High", 0.2),
-    ("Very high", 0.1),
+    ("Low", 0.9),
+    ("Medium", 0.7),
+    ("High", 0.45),
+    ("Very high", 0.22),
 ];
 
 fn apply_theme_preference(preference: ThemePreference) {
@@ -25,6 +25,28 @@ fn apply_theme_preference(preference: ThemePreference) {
     }
 }
 
+fn setting_row(label: &str, control: &impl IsA<gtk4::Widget>) -> gtk4::Box {
+    let row = gtk4::Box::new(Orientation::Horizontal, 12);
+    let text = gtk4::Label::new(Some(label));
+    text.set_halign(gtk4::Align::Start);
+    text.set_xalign(0.0);
+    text.set_hexpand(true);
+    row.append(&text);
+    control.set_halign(gtk4::Align::End);
+    control.set_valign(gtk4::Align::Center);
+    row.append(control);
+    row
+}
+
+fn settings_page() -> gtk4::Box {
+    let page = gtk4::Box::new(Orientation::Vertical, 12);
+    page.set_margin_top(18);
+    page.set_margin_bottom(18);
+    page.set_margin_start(18);
+    page.set_margin_end(18);
+    page
+}
+
 pub fn build_ui(app: &gtk4::Application) {
     let config = Config::load();
     let default_icon_size = Config::default().icon_size;
@@ -33,19 +55,11 @@ pub fn build_ui(app: &gtk4::Application) {
     let window = gtk4::ApplicationWindow::builder()
         .application(app)
         .title("JustADock Settings")
-        .default_width(280)
-        .default_height(430)
+        .default_width(360)
+        .default_height(340)
         .resizable(false)
         .build();
 
-    let root = gtk4::Box::new(Orientation::Vertical, 12);
-    root.set_margin_top(20);
-    root.set_margin_bottom(20);
-    root.set_margin_start(20);
-    root.set_margin_end(20);
-
-    let theme_label = gtk4::Label::new(Some("Theme"));
-    theme_label.set_halign(gtk4::Align::Start);
     let theme_dropdown = gtk4::DropDown::from_strings(&["System", "Light", "Dark"]);
     theme_dropdown.set_selected(match config.theme {
         ThemePreference::System => 0,
@@ -61,8 +75,6 @@ pub fn build_ui(app: &gtk4::Application) {
         apply_theme_preference(preference);
     });
 
-    let size_label = gtk4::Label::new(Some("Dock size"));
-    size_label.set_halign(gtk4::Align::Start);
     let size_labels: Vec<String> = ICON_SIZE_OPTIONS
         .iter()
         .map(|size| match *size == default_icon_size {
@@ -78,17 +90,6 @@ pub fn build_ui(app: &gtk4::Application) {
         .unwrap_or(0);
     size_dropdown.set_selected(size_index as u32);
 
-    let hide_mode_label = gtk4::Label::new(Some("Hide mode"));
-    hide_mode_label.set_halign(gtk4::Align::Start);
-    let hide_mode_dropdown = gtk4::DropDown::from_strings(&[
-        HideMode::Disabled, 
-        HideMode::Maximized, 
-        HideMode::Timed
-    ].map(HideMode::label));
-    hide_mode_dropdown.set_selected(config.hide_mode as u32);
-
-    let opacity_label = gtk4::Label::new(Some("Dock transparency"));
-    opacity_label.set_halign(gtk4::Align::Start);
     let default_opacity = Config::default().opacity;
     let opacity_labels: Vec<String> = OPACITY_OPTIONS
         .iter()
@@ -99,7 +100,6 @@ pub fn build_ui(app: &gtk4::Application) {
         .collect();
     let opacity_label_refs: Vec<&str> = opacity_labels.iter().map(String::as_str).collect();
     let opacity_dropdown = gtk4::DropDown::from_strings(&opacity_label_refs);
-
     let opacity_index = OPACITY_OPTIONS
         .iter()
         .enumerate()
@@ -112,14 +112,41 @@ pub fn build_ui(app: &gtk4::Application) {
         .unwrap_or(0);
     opacity_dropdown.set_selected(opacity_index as u32);
 
-    root.append(&theme_label);
-    root.append(&theme_dropdown);
-    root.append(&size_label);
-    root.append(&size_dropdown);
-    root.append(&hide_mode_label);
-    root.append(&hide_mode_dropdown);
-    root.append(&opacity_label);
-    root.append(&opacity_dropdown);
+    let hide_mode_dropdown = gtk4::DropDown::from_strings(
+        &[HideMode::Disabled, HideMode::Maximized, HideMode::Timed].map(HideMode::label),
+    );
+    hide_mode_dropdown.set_selected(config.hide_mode as u32);
+
+    let trash_switch = gtk4::Switch::new();
+    trash_switch.set_active(config.show_trash);
+
+    let style_page = settings_page();
+    style_page.append(&setting_row("Theme", &theme_dropdown));
+    style_page.append(&setting_row("Dock size", &size_dropdown));
+    style_page.append(&setting_row("Transparency", &opacity_dropdown));
+
+    let behaviour_page = settings_page();
+    behaviour_page.append(&setting_row("Hide mode", &hide_mode_dropdown));
+    behaviour_page.append(&setting_row("Show trash icon", &trash_switch));
+
+    let stack = gtk4::Stack::new();
+    stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
+    stack.add_titled(&style_page, Some("style"), "Style");
+    stack.add_titled(&behaviour_page, Some("behaviour"), "Behaviour");
+
+    let switcher = gtk4::StackSwitcher::new();
+    switcher.set_stack(Some(&stack));
+    switcher.set_halign(gtk4::Align::Center);
+
+    let root = gtk4::Box::new(Orientation::Vertical, 0);
+
+    let header = gtk4::Box::new(Orientation::Vertical, 0);
+    header.set_margin_top(14);
+    header.set_margin_bottom(6);
+    header.append(&switcher);
+    root.append(&header);
+
+    root.append(&stack);
 
     let spacer = gtk4::Box::new(Orientation::Vertical, 0);
     spacer.set_vexpand(true);
@@ -127,6 +154,10 @@ pub fn build_ui(app: &gtk4::Application) {
 
     let button_row = gtk4::Box::new(Orientation::Horizontal, 8);
     button_row.set_halign(gtk4::Align::End);
+    button_row.set_margin_bottom(16);
+    button_row.set_margin_end(18);
+    button_row.set_margin_start(18);
+    button_row.set_margin_top(4);
     let cancel_button = gtk4::Button::with_label("Cancel");
     let save_button = gtk4::Button::with_label("Save");
     save_button.add_css_class("suggested-action");
@@ -145,8 +176,9 @@ pub fn build_ui(app: &gtk4::Application) {
         let window = window.clone();
         let theme_dropdown = theme_dropdown.clone();
         let size_dropdown = size_dropdown.clone();
-        let hide_mode_dropdown = hide_mode_dropdown.clone();
         let opacity_dropdown = opacity_dropdown.clone();
+        let hide_mode_dropdown = hide_mode_dropdown.clone();
+        let trash_switch = trash_switch.clone();
         move |_| {
             let mut config = Config::load();
             config.theme = match theme_dropdown.selected() {
@@ -158,15 +190,16 @@ pub fn build_ui(app: &gtk4::Application) {
                 .get(size_dropdown.selected() as usize)
                 .copied()
                 .unwrap_or(default_icon_size);
-            config.hide_mode = match hide_mode_dropdown.selected() {
-                1 => crate::config::HideMode::Maximized,
-                2 => crate::config::HideMode::Timed,
-                _ => crate::config::HideMode::Disabled,
-            };
             config.opacity = OPACITY_OPTIONS
                 .get(opacity_dropdown.selected() as usize)
                 .map(|(_, value)| *value)
                 .unwrap_or(default_opacity);
+            config.hide_mode = match hide_mode_dropdown.selected() {
+                1 => HideMode::Maximized,
+                2 => HideMode::Timed,
+                _ => HideMode::Disabled,
+            };
+            config.show_trash = trash_switch.is_active();
             config.save();
             restart_dock();
             window.close();

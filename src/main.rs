@@ -9,6 +9,7 @@ mod model;
 mod style;
 mod theme;
 mod toplevel;
+mod trash;
 
 use gtk4::glib;
 use gtk4::prelude::*;
