@@ -19,7 +19,7 @@ use crate::theme::{self, ColorScheme};
 use crate::toplevel::{self, Command, ToplevelEvent};
 
 const PEEK_PX: i32 = 6;
-const DODGE_HIDE_DELAY: Duration = Duration::from_millis(350);
+const DODGE_HIDE_DELAY: Duration = Duration::from_millis(350); // grace period before a dodging dock collapses - NOTE: test different values down the line
 const COLLAPSE_FADE_DELAY: Duration = Duration::from_millis(200);
 const DODGE_STARTUP_DELAY: Duration = Duration::from_millis(500);
 
@@ -396,6 +396,7 @@ fn position_above_dock(
     let icon_center = anchor_pos + anchor_size / 2.0;
     let offset = icon_center - dock_center;
 
+    // GTK centers the total size (widget + margin), so we double the offset to shift the visual center.
     let margin_pos = if offset > 0.0 { (offset * 2.0).round() as i32 } else { 0 };
     let margin_neg = if offset <= 0.0 { (offset.abs() * 2.0).round() as i32 } else { 0 };
 
@@ -759,7 +760,7 @@ fn schedule_hide(inner: &Rc<RefCell<AppInner>>) {
     if guard.menu_window.is_visible() {
         return;
     }
-
+    
     match guard.config.hide_mode {
         HideMode::Disabled => return,
         HideMode::Maximized if !guard.dodge => return,
