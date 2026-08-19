@@ -576,14 +576,15 @@ fn rebuild_row(
         motion.connect_enter({
             let inner = inner.clone();
             let tooltip_text = tooltip_text.clone();
-            let overlay = overlay.clone();
+            let overlay = overlay.downgrade();
             let cell_gen = cell_gen.clone();
             move |_, _, _| {
+                let Some(overlay) = overlay.upgrade() else { return };
                 let Ok(mut guard) = inner.try_borrow_mut() else { return };
                 if guard.menu_window.is_visible() {
                     return;
                 }
-                let gen = schedule_tooltip(&mut guard, &inner, tooltip_text.clone(), overlay.clone());
+                let gen = schedule_tooltip(&mut guard, &inner, tooltip_text.clone(), overlay);
                 cell_gen.set(gen);
             }
         });
@@ -636,8 +637,9 @@ fn rebuild_row(
             let key = item.key.clone();
             let windows = item.windows.clone();
             let launch_desktop_id = item.launch_desktop_id.clone();
-            let overlay = overlay.clone();
+            let overlay = overlay.downgrade();
             move |_, _, _, _| {
+                let Some(overlay) = overlay.upgrade() else { return };
                 let guard = inner.borrow();
                 guard.tooltip_window.set_visible(false);
                 rebuild_menu(&guard, &inner, &key, &windows, launch_desktop_id.as_deref());
@@ -724,14 +726,15 @@ fn append_trash(guard: &mut AppInner, inner: &Rc<RefCell<AppInner>>) {
     let motion = gtk4::EventControllerMotion::new();
     motion.connect_enter({
         let inner = inner.clone();
-        let overlay = overlay.clone();
+        let overlay = overlay.downgrade();
         let cell_gen = cell_gen.clone();
         move |_, _, _| {
+            let Some(overlay) = overlay.upgrade() else { return };
             let Ok(mut guard) = inner.try_borrow_mut() else { return };
             if guard.menu_window.is_visible() {
                 return;
             }
-            let gen = schedule_tooltip(&mut guard, &inner, "Trash".to_string(), overlay.clone());
+            let gen = schedule_tooltip(&mut guard, &inner, "Trash".to_string(), overlay);
             cell_gen.set(gen);
         }
     });
@@ -763,8 +766,9 @@ fn append_trash(guard: &mut AppInner, inner: &Rc<RefCell<AppInner>>) {
     right_click.set_button(gtk4::gdk::BUTTON_SECONDARY);
     right_click.connect_pressed({
         let inner = inner.clone();
-        let overlay = overlay.clone();
+        let overlay = overlay.downgrade();
         move |_, _, _, _| {
+            let Some(overlay) = overlay.upgrade() else { return };
             let guard = inner.borrow();
             guard.tooltip_window.set_visible(false);
             rebuild_trash_menu(&guard, &inner);
@@ -797,15 +801,16 @@ fn append_device(guard: &mut AppInner, inner: &Rc<RefCell<AppInner>>, device: &d
     let motion = gtk4::EventControllerMotion::new();
     motion.connect_enter({
         let inner = inner.clone();
-        let overlay = overlay.clone();
+        let overlay = overlay.downgrade();
         let cell_gen = cell_gen.clone();
         let name = name.clone();
         move |_, _, _| {
+            let Some(overlay) = overlay.upgrade() else { return };
             let Ok(mut guard) = inner.try_borrow_mut() else { return };
             if guard.menu_window.is_visible() {
                 return;
             }
-            let gen = schedule_tooltip(&mut guard, &inner, name.clone(), overlay.clone());
+            let gen = schedule_tooltip(&mut guard, &inner, name.clone(), overlay);
             cell_gen.set(gen);
         }
     });
@@ -831,9 +836,10 @@ fn append_device(guard: &mut AppInner, inner: &Rc<RefCell<AppInner>>, device: &d
     right_click.set_button(gtk4::gdk::BUTTON_SECONDARY);
     right_click.connect_pressed({
         let inner = inner.clone();
-        let overlay = overlay.clone();
+        let overlay = overlay.downgrade();
         let volume = volume.clone();
         move |_, _, _, _| {
+            let Some(overlay) = overlay.upgrade() else { return };
             let guard = inner.borrow();
             guard.tooltip_window.set_visible(false);
             rebuild_device_menu(&guard, &inner, &volume);
