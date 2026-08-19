@@ -358,7 +358,8 @@ fn sync(inner: &Rc<RefCell<AppInner>>) {
 
     let available_length = available_length(&guard);
     let scale_factor = primary_scale_factor(&guard);
-    let new_geometry = Geometry::compute(&guard.config, items.len(), available_length, scale_factor);
+    let cell_count = items.len() + devices.len() + guard.config.show_trash as usize;
+    let new_geometry = Geometry::compute(&guard.config, cell_count, available_length, scale_factor);
 
     if new_geometry != guard.geometry {
         guard.geometry = new_geometry;

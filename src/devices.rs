@@ -1,5 +1,3 @@
-// Still experimental
-
 use std::process::{Command, Stdio};
 
 use gtk4::gio;
@@ -39,6 +37,12 @@ pub fn list(monitor: &gio::VolumeMonitor) -> Vec<Device> {
             mounted,
         });
     }
+    out.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
     out
 }
 
