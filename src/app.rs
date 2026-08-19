@@ -200,6 +200,12 @@ pub fn build_ui(app: &gtk4::Application) {
         _volume_monitor: volume_monitor,
     }));
 
+    {
+        let guard = inner.borrow();
+        let css = style::generate_css(&guard.geometry, &guard.config, guard.scheme);
+        guard.css_provider.load_from_data(&css);
+    }
+
     sync(&inner);
 
     setup_trash_monitor(&inner);
@@ -352,10 +358,13 @@ fn sync(inner: &Rc<RefCell<AppInner>>) {
 
     let available_length = available_length(&guard);
     let scale_factor = primary_scale_factor(&guard);
-    guard.geometry = Geometry::compute(&guard.config, items.len(), available_length, scale_factor);
+    let new_geometry = Geometry::compute(&guard.config, items.len(), available_length, scale_factor);
 
-    let css = style::generate_css(&guard.geometry, &guard.config, guard.scheme);
-    guard.css_provider.load_from_data(&css);
+    if new_geometry != guard.geometry {
+        guard.geometry = new_geometry;
+        let css = style::generate_css(&guard.geometry, &guard.config, guard.scheme);
+        guard.css_provider.load_from_data(&css);
+    }
 
     if new_keys != guard.displayed_keys {
         rebuild_row(&mut guard, &items, &devices, inner);
