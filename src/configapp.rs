@@ -56,7 +56,7 @@ pub fn build_ui(app: &gtk4::Application) {
         .application(app)
         .title("JustADock Settings")
         .default_width(360)
-        .default_height(340)
+        .default_height(384)
         .resizable(false)
         .build();
 
@@ -123,12 +123,53 @@ pub fn build_ui(app: &gtk4::Application) {
     let devices_switch = gtk4::Switch::new();
     devices_switch.set_active(config.show_devices);
 
+    let mut monitor_options: Vec<Option<String>> = vec![None];
+    let mut monitor_labels: Vec<String> = vec!["Automatic".to_string()];
+    if let Some(display) = gtk4::gdk::Display::default() {
+        let monitors = display.monitors();
+        for i in 0..monitors.n_items() {
+            let Some(monitor) = monitors
+                .item(i)
+                .and_then(|obj| obj.downcast::<gtk4::gdk::Monitor>().ok())
+            else {
+                continue;
+            };
+            let Some(connector) = monitor.connector() else {
+                continue;
+            };
+            let connector = connector.to_string();
+            let label = match monitor.model() {
+                Some(model) if !model.is_empty() => format!("{connector} — {model}"),
+                _ => connector.clone(),
+            };
+            monitor_labels.push(label);
+            monitor_options.push(Some(connector));
+        }
+    }
+    if let Some(name) = &config.monitor {
+        if !monitor_options.iter().any(|c| c.as_deref() == Some(name.as_str())) {
+            monitor_labels.push(format!("{name} (not connected)"));
+            monitor_options.push(Some(name.clone()));
+        }
+    }
+    let monitor_label_refs: Vec<&str> = monitor_labels.iter().map(String::as_str).collect();
+    let monitor_dropdown = gtk4::DropDown::from_strings(&monitor_label_refs);
+    let monitor_index = match &config.monitor {
+        Some(name) => monitor_options
+            .iter()
+            .position(|c| c.as_deref() == Some(name.as_str()))
+            .unwrap_or(0),
+        None => 0,
+    };
+    monitor_dropdown.set_selected(monitor_index as u32);
+
     let style_page = settings_page();
     style_page.append(&setting_row("Theme", &theme_dropdown));
     style_page.append(&setting_row("Dock size", &size_dropdown));
     style_page.append(&setting_row("Transparency", &opacity_dropdown));
 
     let behaviour_page = settings_page();
+    behaviour_page.append(&setting_row("Monitor", &monitor_dropdown));
     behaviour_page.append(&setting_row("Hide mode", &hide_mode_dropdown));
     behaviour_page.append(&setting_row("Show trash icon", &trash_switch));
     behaviour_page.append(&setting_row("Show removable devices", &devices_switch));
@@ -184,6 +225,8 @@ pub fn build_ui(app: &gtk4::Application) {
         let hide_mode_dropdown = hide_mode_dropdown.clone();
         let trash_switch = trash_switch.clone();
         let devices_switch = devices_switch.clone();
+        let monitor_dropdown = monitor_dropdown.clone();
+        let monitor_options = monitor_options.clone();
         move |_| {
             let mut config = Config::load();
             config.theme = match theme_dropdown.selected() {
@@ -206,6 +249,10 @@ pub fn build_ui(app: &gtk4::Application) {
             };
             config.show_trash = trash_switch.is_active();
             config.show_devices = devices_switch.is_active();
+            config.monitor = monitor_options
+                .get(monitor_dropdown.selected() as usize)
+                .cloned()
+                .flatten();
             config.save();
             restart_dock();
             window.close();
