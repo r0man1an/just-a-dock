@@ -1,7 +1,7 @@
 [package]
 name = "justadock"
 version = "0.1.0"
-edition = "2021"
+edition = "2026"
 rust-version = "1.85"
 description = "A dock for wlroots-based Wayland compositors (niri, wayfire, labwc, ...), built with gtk4-layer-shell."
 license = "MIT"
